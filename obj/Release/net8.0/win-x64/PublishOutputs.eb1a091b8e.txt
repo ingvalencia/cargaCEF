@@ -1,0 +1,4 @@
+C:\Proyectos\NET\SistemaConexionFirebird\bin\Release\net8.0\win-x64\publish\SistemaConexionFirebird.pdb
+C:\Proyectos\NET\SistemaConexionFirebird\bin\Release\net8.0\win-x64\publish\gds32.dll
+C:\Proyectos\NET\SistemaConexionFirebird\bin\Release\net8.0\win-x64\publish\sni.dll
+C:\Proyectos\NET\SistemaConexionFirebird\bin\Release\net8.0\win-x64\publish\SistemaConexionFirebird.exe
