@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("SistemaConexionFirebird")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+098571d9e18f06a9d87ab66d1d03bbc60776b3de")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+49d6d33adb7063c6a7e7341d830074baa9b9340f")]
 [assembly: System.Reflection.AssemblyProductAttribute("SistemaConexionFirebird")]
 [assembly: System.Reflection.AssemblyTitleAttribute("SistemaConexionFirebird")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]
