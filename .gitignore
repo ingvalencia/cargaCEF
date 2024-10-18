@@ -1,0 +1,7 @@
+# Ignorar la carpeta .vs
+.vs/
+# Ignorar la carpeta bin y obj
+bin/
+obj/
+# Ignorar logs
+LOGS/
