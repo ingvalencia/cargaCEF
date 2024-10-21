@@ -15,63 +15,62 @@ class Program
     private const int MAX_RETRIES = 3; // Número máximo de reintentos
     private const int TIMEOUT_SECONDS = 120; // Timeout para las operaciones críticas
 
-   // Método principal
+    // Método principal
     static async Task Main(string[] args)
     {
         bool repetirProceso = true;
 
+        //Ruta para almacenar LOGS
+        string baseDirectory = AppDomain.CurrentDomain.BaseDirectory;
+        string logsDirectory = Path.Combine(baseDirectory, "LOGS");
+
+        // Crear la carpeta LOGS si no existe
+        if (!Directory.Exists(logsDirectory))
+        {
+            Directory.CreateDirectory(logsDirectory);
+        }
+
         while (repetirProceso)
         {
-            int opcion = MostrarMenu(); // Mostrar el menú y obtener la opción del usuario
+            // Iniciar el temporizador junto con el menú
+            Task<int> menuTask = Task.Run(() => MostrarMenuConTemporizador()); // Inicia el menú con temporizador
+            int opcion = await menuTask; // Espera la opción seleccionada o la automática
 
             // Variables comunes
             DateTime inicioProcesoGlobal = DateTime.Now;
             List<(string sigla, string ipserver, string rutadb, string userdb, string passdb)> listaCefsProcesados = new List<(string, string, string, string, string)>();
             List<(string cef, int totalRegistros, double tiempoSegundos)> detallesCefs = new List<(string, int, double)>();
-            string fechaInicio = ObtenerFecha("inicio");
-            string fechaFin = ObtenerFecha("fin");
-            string fechaActual = DateTime.Now.ToString("yyyyMMdd");
-            // Variable para acumular el tiempo total de procesamiento de todos los CEFs
-            TimeSpan tiempoTotalCefs = TimeSpan.Zero;
+            string fechaInicio, fechaFin, fechaActual = DateTime.Now.ToString("yyyyMMdd");
+            TimeSpan tiempoTotalCefs = TimeSpan.Zero; // Para el tiempo total de procesamiento
+
+            // Verificar si se ejecutó la opción automática tras los 20 segundos
+            if (opcion == 0)
+            {
+                // Calcular las fechas automáticas
+                fechaInicio = DateTime.Now.AddDays(-15).ToString("yyyy-MM-dd");
+                fechaFin = DateTime.Now.AddDays(-1).ToString("yyyy-MM-dd");
+
+                Console.WriteLine("No hubo interacción. Procesando automáticamente...");
+                Console.WriteLine($"Fecha Inicio: {fechaInicio}, Fecha Fin: {fechaFin}, Procesando TODOS los CEFs.");
+            }
+            else
+            {
+                // Si el usuario selecciona una opción manualmente
+                fechaInicio = ObtenerFecha("inicio");
+                fechaFin = ObtenerFecha("fin");
+            }
 
             // Abrir el log para registros
 
-            // Obtener el directorio base donde se está ejecutando el proyecto (Debug o Release)
-            string baseDirectory = AppDomain.CurrentDomain.BaseDirectory;
-
-            // Ruta relativa a la carpeta LOGS dentro del directorio de ejecución
-            string logsDirectory = Path.Combine(baseDirectory, "LOGS");
-
-            // Crear la carpeta LOGS si no existe
-            if (!Directory.Exists(logsDirectory))
-            {
-                Directory.CreateDirectory(logsDirectory);
-            }
-
-            // Crear el archivo de log en la carpeta LOGS con la fecha actual
-            //string fechaActual = DateTime.Now.ToString("yyyyMMdd");
-            string logFilePath = Path.Combine(logsDirectory, $"log_cargaCEF_{fechaActual}.txt");
-
             //string logFilePath = $@"C:\Users\Administrador\Documents\Proyectos_Gio\log_cargaCEF_{fechaActual}.txt";
+            string logFilePath = Path.Combine(logsDirectory, $"log_cargaCEF_{fechaActual}.txt");
+            
             using (StreamWriter log = new StreamWriter(logFilePath, true))
             {
-
-                // Obtener el directorio base donde se está ejecutando el proyecto (Debug o Release)
-                string baseDirectoryA = AppDomain.CurrentDomain.BaseDirectory;
-
-                // Ruta relativa a la carpeta LOGS dentro del directorio de ejecución
-                string logsDirectoryA = Path.Combine(baseDirectoryA, "LOGS");
-
-                // Crear la carpeta LOGS si no existe
-                if (!Directory.Exists(logsDirectoryA))
+                // Opción 1: Realizar proceso de carga de CEFs completo o automático
+                if (opcion == 1 || opcion == 0)
                 {
-                    Directory.CreateDirectory(logsDirectoryA);
-                }
-
-                // Opción 1: Realizar proceso de carga de CEFs completo
-                if (opcion == 1)
-                {
-                    List<string> cefsList = ObtenerListaCefs();
+                    List<string> cefsList = opcion == 0 ? new List<string> { "TODOS" } : ObtenerListaCefs();
 
                     log.WriteLine("*****************************");
                     log.WriteLine("Inicio del Proceso de Carga CEF");
@@ -85,7 +84,7 @@ class Program
                         {
                             // Procesar todos los CEFs
                             List<(string sigla, string ipserver, string rutadb, string userdb, string passdb)> listaCefs = ObtenerTodosLosDatosConexion();
-                            listaCefsProcesados = listaCefs; // Guardamos la lista de CEFs procesados
+                            listaCefsProcesados = listaCefs;
 
                             foreach (var cefDatos in listaCefs)
                             {
@@ -149,26 +148,21 @@ class Program
                     log.WriteLine($"Tiempo total acumulado de procesamiento de CEFs: {tiempoFormateadoCefs}");
                     log.WriteLine("#############################");
 
-                    // Nuevo: Verificación de conteo por CEF
+                    // Verificación de conteo por CEF
                     Console.WriteLine("Proceso completado, ahora se procede con hacer un conteo por cada CEF.");
-
-                    // Crear la ruta para el archivo de log en la carpeta LOGS con la fecha actual
-                    string logVerificationFilePath = Path.Combine(logsDirectoryA, $"log_verificacion_ticket_{fechaActual}.txt");
-
+                    string logVerificationFilePath = Path.Combine(logsDirectory, $"log_verificacion_ticket_{fechaActual}.txt");
                     //string logVerificationFilePath = $@"C:\Users\Administrador\Documents\Proyectos_Gio\log_verificacion_ticket_{fechaActual}.txt";
                     await VerificarConteoRegistrosPorCEF(listaCefsProcesados, fechaInicio, fechaFin, logVerificationFilePath);
                 }
                 // Opción 2: Realizar solo el conteo de registros por CEF
                 else if (opcion == 2)
-                {   
+                {
                     List<string> cefsList = ObtenerListaCefs();
                     Console.WriteLine("Verificación de Conteo de Registros por CEF:");
 
-                    // Crear la ruta para el archivo de log en la carpeta LOGS con la fecha actual
-                    string logVerificationFilePath = Path.Combine(logsDirectoryA, $"log_verificacion_ticket_{fechaActual}.txt");
+                    string logVerificationFilePath = Path.Combine(logsDirectory, $"log_verificacion_ticket_{fechaActual}.txt");
                     //string logVerificationFilePath = $@"C:\Users\Administrador\Documents\Proyectos_Gio\log_verificacion_ticket_{fechaActual}.txt";
 
-                    // Rellenar listaCefsProcesados con la información de conexión de los CEFs seleccionados
                     if (cefsList.Count == 1 && cefsList[0].ToUpper() == "TODOS")
                     {
                         // Procesar todos los CEFs
@@ -178,7 +172,6 @@ class Program
                     {
                         foreach (string cef in cefsList)
                         {
-                            // Obtener datos de conexión para cada CEF
                             var (ipserver, rutadb, userdb, passdb) = ObtenerDatosConexion(cef);
                             if (!string.IsNullOrEmpty(ipserver))
                             {
@@ -187,14 +180,13 @@ class Program
                         }
                     }
 
-                    // Verificar el conteo de registros con la lista de CEFs procesados
                     await VerificarConteoRegistrosPorCEF(listaCefsProcesados, fechaInicio, fechaFin, logVerificationFilePath);
                 }
 
                 // Opción 3: Validar registros entre FA_POS y Cointech
                 else if (opcion == 3)
                 {
-                    await ValidarRegistrosCEF(fechaInicio, fechaFin); // Asegúrate de que este método esté implementado
+                    await ValidarRegistrosCEF(fechaInicio, fechaFin);
                 }
             }
 
@@ -206,13 +198,12 @@ class Program
     }
 
 
+
     // Método para validar y reprocesar errores desde log_carga_cef
     static async Task ValidarErrorCef(string fechaInicio, string fechaFin, int opcion)
     {
-        // Obtener el directorio base donde se está ejecutando el proyecto (Debug o Release)
+        // Abrir el log para registros
         string baseDirectory = AppDomain.CurrentDomain.BaseDirectory;
-
-        // Ruta relativa a la carpeta LOGS dentro del directorio de ejecución
         string logsDirectory = Path.Combine(baseDirectory, "LOGS");
 
         // Crear la carpeta LOGS si no existe
@@ -221,11 +212,10 @@ class Program
             Directory.CreateDirectory(logsDirectory);
         }
 
-        // Crear el archivo de log en la carpeta LOGS con la fecha actual
+        
         string fechaActual = DateTime.Now.ToString("yyyyMMdd");
+        //string logFilePath = $@"C:\Users\Administrador\Documents\Proyectos_Gio\validacion_error_carga_cef_{fechaActual}.txt";}
         string logFilePath = Path.Combine(logsDirectory, $"validacion_error_carga_cef_{fechaActual}.txt");
-
-        //string logFilePath = $@"C:\Users\Administrador\Documents\Proyectos_Gio\validacion_error_carga_cef_{fechaActual}.txt";
 
         using (StreamWriter log = new StreamWriter(logFilePath, true))
         {
@@ -298,32 +288,54 @@ class Program
     }
 
     // Método para mostrar el menú de opciones
-    static int MostrarMenu()
+    static int MostrarMenuConTemporizador()
     {
+        int opcion = -1;
+        int tiempoRestante = 20; // 20 segundos de espera
+
         Console.WriteLine("Seleccione una opción:");
         Console.WriteLine("1. Realizar Proceso de Carga CEF Completo");
         Console.WriteLine("2. Verificar Conteo de Registros por CEF");
         Console.WriteLine("3. Validar Registros entre FA_POS y Cointech");
+        Console.WriteLine();
 
-        int opcion;
-        do
+        // Inicia el temporizador para la interacción
+        while (tiempoRestante > 0 && opcion == -1)
         {
-            Console.Write("Ingrese su opción (1, 2 o 3): ");
-        } while (!int.TryParse(Console.ReadLine(), out opcion) || (opcion != 1 && opcion != 2 && opcion != 3));
+            if (Console.KeyAvailable) // Detecta si una tecla fue presionada
+            {
+                string input = Console.ReadLine();
+                if (int.TryParse(input, out opcion) && (opcion == 1 || opcion == 2 || opcion == 3))
+                {
+                    return opcion; // Opción válida
+                }
+                else
+                {
+                    opcion = -1; // Resetea si la opción es inválida
+                    Console.WriteLine("Opción no válida. Intente nuevamente.");
+                }
+            }
 
-        return opcion;
+            // Mostrar el tiempo restante
+            Console.SetCursorPosition(0, Console.CursorTop); // Posicionar el cursor para que sobreescriba la línea anterior
+            Console.Write($"El sistema procesará automáticamente en {tiempoRestante} segundos...   ");
+            Thread.Sleep(1000); // Espera 1 segundo
+            tiempoRestante--;
+        }
+
+        // Si no hubo interacción, retorna 0 para la ejecución automática
+        return 0;
     }
+
 
 
     static async Task ValidarRegistrosCEF(string fechaInicio, string fechaFin)
     {
-        List<string> cefsPendientes = await ObtenerCefsPendientesFA_POS(fechaInicio, fechaFin);
-
-        // Obtener el directorio base donde se está ejecutando el proyecto (Debug o Release)
+        // Abrir el log para registros
         string baseDirectory = AppDomain.CurrentDomain.BaseDirectory;
-
-        // Ruta relativa a la carpeta LOGS dentro del directorio de ejecución
         string logsDirectory = Path.Combine(baseDirectory, "LOGS");
+
+        string fechaActual = DateTime.Now.ToString("yyyyMMdd");
 
         // Crear la carpeta LOGS si no existe
         if (!Directory.Exists(logsDirectory))
@@ -331,8 +343,8 @@ class Program
             Directory.CreateDirectory(logsDirectory);
         }
 
-        // Crear el archivo de log en la carpeta LOGS con la fecha actual
-        string fechaActual = DateTime.Now.ToString("yyyyMMdd");
+        List<string> cefsPendientes = await ObtenerCefsPendientesFA_POS(fechaInicio, fechaFin);
+
         string logFilePath = Path.Combine(logsDirectory, $"validacion_cef_{fechaActual}.txt");
 
         //string logFilePath = $@"C:\Users\Administrador\Documents\Proyectos_Gio\validacion_cef_{DateTime.Now.ToString("yyyyMMdd")}.txt";
@@ -479,11 +491,15 @@ class Program
         {
             // Registra el tiempo de inicio del proceso de verificación
             logVerification.WriteLine($"Proceso de verificación iniciado: {DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss")}");
-            
+
             foreach (var cefDatos in listaCefsProcesados)
             {
                 // Tiempo de inicio para el CEF actual
                 DateTime inicioCEF = DateTime.Now;
+
+                // *** Mostrar en consola qué CEF se está procesando ***
+                Console.WriteLine($"Verificando el CEF: {cefDatos.sigla}...");
+
                 logVerification.WriteLine("*****************************");
                 logVerification.WriteLine($"CEF {cefDatos.sigla}:");
 
@@ -536,6 +552,9 @@ class Program
                 logVerification.WriteLine($"Fin de la consulta: {finCEF.ToString("yyyy-MM-dd HH:mm:ss")}");
                 logVerification.WriteLine($"Tiempo total de consulta para el CEF {cefDatos.sigla}: {tiempoFormateadoCEF}");
                 logVerification.WriteLine("*****************************");
+
+                // *** Mostrar en consola que el CEF fue verificado ***
+                Console.WriteLine($"CEF {cefDatos.sigla} verificado.");
             }
 
             // Registra el tiempo de finalización del proceso de verificación
@@ -543,7 +562,8 @@ class Program
         }
     }
 
-   static async Task<int> ObtenerConteoSqlServer(string cef, string fechaInicio, string fechaFin)
+
+    static async Task<int> ObtenerConteoSqlServer(string cef, string fechaInicio, string fechaFin)
     {
         string sqlServerConnectionString = "Server=192.168.0.174;Database=COINTECH_DB;User Id=sa;Password=P@ssw0rd;";
         int count = 0;
@@ -582,25 +602,25 @@ class Program
             {
                 // Consulta específica para CEFs que terminan en "UP"
                 query = @"SELECT COUNT(*) FROM caj_turnos a
-                        INNER JOIN caj_transacciones b ON a.idturnocaja = b.idturnocaja
-                        INNER JOIN pos_transacciones c ON b.idtranpos = c.idtranpos
-                        WHERE CAST(a.fechaadministrativa AS DATE) BETWEEN ? AND ?
-                        AND b.importe <> 0 
-                        AND c.numcomprobante > 0
-                        AND a.numerocaja -200 >= 20 
-                        ;";
+                     INNER JOIN caj_transacciones b ON a.idturnocaja = b.idturnocaja
+                     INNER JOIN pos_transacciones c ON b.idtranpos = c.idtranpos
+                     WHERE CAST(a.fechaadministrativa AS DATE) BETWEEN ? AND ?
+                     AND b.importe <> 0 
+                     AND c.numcomprobante > 0
+                     AND a.numerocaja -200 >= 20 
+                     ;";
             }
             else
             {
                 // Consulta para CEFs que no terminan en "UP"
                 query = @"SELECT COUNT(*) FROM caj_turnos a
-                        INNER JOIN caj_transacciones b ON a.idturnocaja = b.idturnocaja
-                        INNER JOIN pos_transacciones c ON b.idtranpos = c.idtranpos
-                        WHERE CAST(a.fechaadministrativa AS DATE) BETWEEN ? AND ?
-                        AND b.importe <> 0 
-                        AND c.numcomprobante > 0 
-                        AND a.numerocaja -200 < 20
-                        ;";
+                     INNER JOIN caj_transacciones b ON a.idturnocaja = b.idturnocaja
+                     INNER JOIN pos_transacciones c ON b.idtranpos = c.idtranpos
+                     WHERE CAST(a.fechaadministrativa AS DATE) BETWEEN ? AND ?
+                     AND b.importe <> 0 
+                     AND c.numcomprobante > 0 
+                     AND a.numerocaja -200 < 20
+                     ;";
             }
 
             using (var firebirdConnection = new OdbcConnection(firebirdConnectionString))
@@ -610,8 +630,10 @@ class Program
                 using (var command = new OdbcCommand(query, firebirdConnection))
                 {
                     command.CommandTimeout = 600;
-                    command.Parameters.AddWithValue("@fechaInicio", fechaInicio);
-                    command.Parameters.AddWithValue("@fechaFin", fechaFin);
+
+                    // Agregar parámetros en el orden de aparición de los signos de interrogación
+                    command.Parameters.AddWithValue("?", fechaInicio);
+                    command.Parameters.AddWithValue("?", fechaFin);
 
                     var result = command.ExecuteScalar();
                     if (result != null && int.TryParse(result.ToString(), out int countResult))
@@ -628,7 +650,6 @@ class Program
             return count;
         });
     }
-
 
     //Método para reintentar los CEFs que fallaron en el proceso anterior
     static async Task ReintentarCefsFallidos(StreamWriter log)
@@ -718,6 +739,19 @@ class Program
     // Método para reprocesar solo el conteo de un CEF
     static async Task<bool> ReprocesarConteoCEF(string cef, string fechaRango, StreamWriter log)
     {
+
+        // Abrir el log para registros
+        string baseDirectory = AppDomain.CurrentDomain.BaseDirectory;
+        string logsDirectory = Path.Combine(baseDirectory, "LOGS");
+
+        string fechaActual = DateTime.Now.ToString("yyyyMMdd");
+
+        // Crear la carpeta LOGS si no existe
+        if (!Directory.Exists(logsDirectory))
+        {
+            Directory.CreateDirectory(logsDirectory);
+        }
+
         try
         {
             var (ipserver, rutadb, userdb, passdb) = ObtenerDatosConexion(cef);
@@ -737,7 +771,9 @@ class Program
                 (cef, ipserver, rutadb, userdb, passdb)
             };
 
-            string logVerificationFilePath = $@"C:\Users\Administrador\Documents\Proyectos_Gio\validacion_error_carga_cef {DateTime.Now.ToString("yyyyMMdd")}.txt";
+            //string logVerificationFilePath = $@"C:\Users\Administrador\Documents\Proyectos_Gio\validacion_error_carga_cef {DateTime.Now.ToString("yyyyMMdd")}.txt";
+
+            string logVerificationFilePath = Path.Combine(logsDirectory, $"validacion_error_carga_cef_{fechaActual}.txt");
             await VerificarConteoRegistrosPorCEF(listaCef, fechaInicio, fechaFin, logVerificationFilePath);
 
             return true;
