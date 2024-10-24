@@ -182,7 +182,6 @@ C:\Proyectos\NET\SistemaConexionFirebird\bin\Release\net8.0\win-x64\createdump.e
 C:\Proyectos\NET\SistemaConexionFirebird\bin\Release\net8.0\win-x64\hostfxr.dll
 C:\Proyectos\NET\SistemaConexionFirebird\bin\Release\net8.0\win-x64\hostpolicy.dll
 C:\Proyectos\NET\SistemaConexionFirebird\bin\Release\net8.0\win-x64\mscordaccore.dll
-C:\Proyectos\NET\SistemaConexionFirebird\bin\Release\net8.0\win-x64\mscordaccore_amd64_amd64_8.0.524.21615.dll
 C:\Proyectos\NET\SistemaConexionFirebird\bin\Release\net8.0\win-x64\mscordbi.dll
 C:\Proyectos\NET\SistemaConexionFirebird\bin\Release\net8.0\win-x64\mscorrc.dll
 C:\Proyectos\NET\SistemaConexionFirebird\bin\Release\net8.0\win-x64\msquic.dll
@@ -201,3 +200,4 @@ C:\Proyectos\NET\SistemaConexionFirebird\bin\Release\net8.0\win-x64\gds32.dll
 C:\Proyectos\NET\SistemaConexionFirebird\bin\Release\net8.0\win-x64\System.Data.SqlClient.dll
 C:\Proyectos\NET\SistemaConexionFirebird\bin\Release\net8.0\win-x64\sni.dll
 C:\Proyectos\NET\SistemaConexionFirebird\obj\Release\net8.0\win-x64\SistemaConexionFirebird.sourcelink.json
+C:\Proyectos\NET\SistemaConexionFirebird\bin\Release\net8.0\win-x64\mscordaccore_amd64_amd64_8.0.824.36612.dll
