@@ -461,7 +461,7 @@ class Program
             try
             {
                 intento++;
-                log.WriteLine($"Intento {intento} de {MAX_RETRIES} para procesar CEF {cef}");
+                log.WriteLine($"[INFO] Intento {intento} de {MAX_RETRIES} para procesar CEF {cef}");
 
                 // Cada intento tiene su propia conexión y transacción
                 using (var sqlConnection = new SqlConnection(sqlServerConnectionString))
@@ -495,12 +495,12 @@ class Program
             }
             catch (Exception ex)
             {
-                log.WriteLine($"Error en el intento {intento} para CEF {cef}: {ex.Message}");
+                log.WriteLine($"[ERROR] Error en el intento {intento} para CEF {cef}: {ex.Message}");
 
                 // Si es el último intento, registrar como fallo
                 if (intento >= MAX_RETRIES)
                 {
-                    log.WriteLine($"Fallo al procesar CEF {cef} después de {MAX_RETRIES} intentos.");
+                    log.WriteLine($"[ERROR] Fallo al procesar CEF {cef} después de {MAX_RETRIES} intentos.");
 
                     // Intentamos registrar el fallo en la tabla log_carga_cef
                     try
@@ -518,7 +518,7 @@ class Program
                     }
                     catch (Exception rollbackEx)
                     {
-                        log.WriteLine($"Error al registrar el fallo del CEF {cef}: {rollbackEx.Message}");
+                        log.WriteLine($"[ERROR] Error al registrar el fallo del CEF {cef}: {rollbackEx.Message}");
                     }
                     break;
                 }
@@ -533,10 +533,6 @@ class Program
 
         return totalRegistrosInsertados;
     }
-
-
-
-
 
 
     // Método para verificar el conteo de registros por CEF mes a mes
@@ -1049,24 +1045,23 @@ class Program
     }
 
 
-
     static async Task<int> ProcesarCEFConLogAsync(string cef, string ipserver, string rutadb, string userdb, string passdb, string fechaInicio, string fechaFin, StreamWriter log)
     {
         string firebirdConnectionString = $"DRIVER={{Firebird/Interbase(r) driver}};DATABASE={ipserver}/3050:{rutadb};UID={userdb};PWD={passdb};";
         string sqlServerConnectionString = "Server=192.168.0.174;Database=COINTECH_DB;User Id=sa;Password=P@ssw0rd;";
         int totalRegistrosInsertados = 0;
 
-        log.WriteLine($"[INFO] Iniciando proceso para CEF {cef} desde {fechaInicio} hasta {fechaFin}");
+        //log.WriteLine($"[INFO] Iniciando proceso para CEF {cef} desde {fechaInicio} hasta {fechaFin}");
 
         try
         {
             using (var firebirdConnection = new OdbcConnection(firebirdConnectionString))
             using (var sqlConnection = new SqlConnection(sqlServerConnectionString))
-            {
+            
                 await firebirdConnection.OpenAsync();
-                log.WriteLine("[INFO] Conexión Firebird abierta exitosamente");
+                //log.WriteLine("[INFO] Conexión Firebird abierta exitosamente");
                 await sqlConnection.OpenAsync();
-                log.WriteLine("[INFO] Conexión SQL Server abierta exitosamente");
+                //log.WriteLine("[INFO] Conexión SQL Server abierta exitosamente");
 
                 using (SqlTransaction sqlTransaction = sqlConnection.BeginTransaction())
                 {
@@ -1078,12 +1073,12 @@ class Program
                         while (fechaInicioDT <= fechaFinDT)
                         {
                             string fechaActual = fechaInicioDT.ToString("yyyy-MM-dd");
-                            log.WriteLine($"[INFO] Procesando registros para la fecha {fechaActual}...");
+                            //log.WriteLine($"[INFO] Procesando registros para la fecha {fechaActual}...");
 
                             // Llamada al método que procesa la carga por día
                             int registrosDia = await RealizarProcesoDeCargaPorDia(firebirdConnection, sqlConnection, cef, fechaActual, fechaActual, sqlTransaction, log);
 
-                            log.WriteLine($"[INFO] Registros insertados para {fechaActual}: {registrosDia}");
+                            //log.WriteLine($"[INFO] Registros insertados para {fechaActual}: {registrosDia}");
 
                             // Acumular los registros insertados en total
                             totalRegistrosInsertados += registrosDia;
@@ -1091,11 +1086,11 @@ class Program
                             fechaInicioDT = fechaInicioDT.AddDays(1);
                         }
 
-                        log.WriteLine($"[INFO] Total registros insertados para el CEF {cef}: {totalRegistrosInsertados}");
+                        //log.WriteLine($"[INFO] Total registros insertados para el CEF {cef}: {totalRegistrosInsertados}");
 
                         // Si todo fue bien, hacemos commit
                         sqlTransaction.Commit();
-                        log.WriteLine("[INFO] Commit realizado correctamente en SQL Server");
+                        //log.WriteLine("[INFO] Commit realizado correctamente en SQL Server");
                     }
                     catch (Exception ex)
                     {
@@ -1119,8 +1114,6 @@ class Program
     }
 
 
-
-
     static async Task<int> ObtenerConteoRegistrosSqlServer(SqlConnection sqlConnection, string cef, string fechaActual, SqlTransaction transaction, StreamWriter log)
     {
         string query = @"SELECT COUNT(*) FROM COINTECH_DB.dbo.tickets_db_cointech_cef 
@@ -1129,7 +1122,7 @@ class Program
         // Verificar si el objeto `log` no es nulo antes de escribir en él
         if (log != null)
         {
-            log.WriteLine($"[INFO] Iniciando conteo de registros en SQL Server para CEF: {cef}, Fecha: {fechaActual}");
+            //log.WriteLine($"[INFO] Iniciando conteo de registros en SQL Server para CEF: {cef}, Fecha: {fechaActual}");
         }
 
         // Asegurarse de que la conexión a SQL Server esté abierta
@@ -1138,7 +1131,7 @@ class Program
             await sqlConnection.OpenAsync();
             if (log != null)
             {
-                log.WriteLine("[INFO] Conexión a SQL Server abierta exitosamente.");
+                //log.WriteLine("[INFO] Conexión a SQL Server abierta exitosamente.");
             }
         }
 
@@ -1153,7 +1146,7 @@ class Program
             // Registrar el resultado en el log
             if (log != null)
             {
-                log.WriteLine($"[INFO] Conteo de registros en SQL Server para CEF {cef}, Fecha {fechaActual}: {conteo}");
+                //log.WriteLine($"[INFO] Conteo de registros en SQL Server para CEF {cef}, Fecha {fechaActual}: {conteo}");
             }
 
             return conteo;
@@ -1191,7 +1184,7 @@ class Program
         // Verificar si log no es nulo y registrar el inicio
         if (log != null)
         {
-            log.WriteLine($"[INFO] Iniciando conteo de registros en Firebird para CEF {cef}, rango: {fechaInicio} a {fechaFin}");
+            //log.WriteLine($"[INFO] Iniciando conteo de registros en Firebird para CEF {cef}, rango: {fechaInicio} a {fechaFin}");
         }
 
         // Asegurarse de que la conexión esté abierta
@@ -1200,7 +1193,7 @@ class Program
             await firebirdConnection.OpenAsync();
             if (log != null)
             {
-                log.WriteLine("[INFO] Conexión a Firebird abierta exitosamente.");
+                //log.WriteLine("[INFO] Conexión a Firebird abierta exitosamente.");
             }
         }
 
@@ -1218,7 +1211,7 @@ class Program
                 // Registrar el resultado en el log
                 if (log != null)
                 {
-                    log.WriteLine($"[INFO] Conteo de registros en Firebird para CEF {cef}, rango {fechaInicio} - {fechaFin}: {conteo}");
+                    //log.WriteLine($"[INFO] Conteo de registros en Firebird para CEF {cef}, rango {fechaInicio} - {fechaFin}: {conteo}");
                 }
 
                 return conteo;
@@ -1233,8 +1226,6 @@ class Program
             }
         }
     }
-
-
 
 
     static async Task<int> RealizarProcesoDeCargaPorDia(OdbcConnection firebirdConnection, SqlConnection sqlConnection, string cef, string fechaInicio, string fechaFin, SqlTransaction transaction, StreamWriter log)
@@ -1298,7 +1289,7 @@ class Program
             if (firebirdConnection.State != ConnectionState.Open)
             {
                 await firebirdConnection.OpenAsync();
-                log.WriteLine("[INFO] Conexión a Firebird abierta exitosamente.");
+                //log.WriteLine("[INFO] Conexión a Firebird abierta exitosamente.");
             }
 
             using (var command = new OdbcCommand(query, firebirdConnection))
@@ -1337,7 +1328,7 @@ class Program
                     }
 
                     int totalRegistros = dataTable.Rows.Count;
-                    log.WriteLine($"[INFO] Total de registros extraídos desde Firebird para el CEF {cef}: {totalRegistros}");
+                    //log.WriteLine($"[INFO] Total de registros extraídos desde Firebird para el CEF {cef}: {totalRegistros}");
 
                     if (totalRegistros > 0)
                     {
@@ -1363,12 +1354,12 @@ class Program
 
                                 // Obtener el lote actual de registros
                                 DataTable batchTable = dataTable.AsEnumerable().Skip(i).Take(batchSize).CopyToDataTable();
-                                log.WriteLine($"[INFO] Intentando insertar {batchTable.Rows.Count} registros en SQL Server para CEF {cef}...");
+                                //log.WriteLine($"[INFO] Intentando insertar {batchTable.Rows.Count} registros en SQL Server para CEF {cef}...");
 
                                 await bulkCopy.WriteToServerAsync(batchTable);
                                 totalRegistrosInsertados += batchTable.Rows.Count;
 
-                                log.WriteLine($"[INFO] Registros insertados hasta ahora para CEF {cef}: {totalRegistrosInsertados}");
+                                //log.WriteLine($"[INFO] Registros insertados hasta ahora para CEF {cef}: {totalRegistrosInsertados}");
                             }
                         }
                     }
@@ -1381,7 +1372,7 @@ class Program
         }
         catch (Exception ex)
         {
-            log.WriteLine($"[ERROR] Error procesando CEF {cef} para el día {fechaInicio}: {ex.Message}");
+            //log.WriteLine($"[ERROR] Error procesando CEF {cef} para el día {fechaInicio}: {ex.Message}");
             throw;  // Propagar el error al método que maneja la transacción
         }
         finally
@@ -1390,16 +1381,12 @@ class Program
             if (firebirdConnection.State == ConnectionState.Open)
             {
                 firebirdConnection.Close();
-                log.WriteLine("[INFO] Conexión a Firebird cerrada.");
+                //log.WriteLine("[INFO] Conexión a Firebird cerrada.");
             }
         }
 
         return totalRegistrosInsertados;
     }
-
-
-
-
 
     // Modificado para aceptar la conexión y la transacción existentes
     static async Task RegistrarErrorCEF(SqlConnection sqlConnection, SqlTransaction transaction, string cef, string mensaje, string fechaInicio, string fechaFin, bool exito, StreamWriter log)
@@ -1430,8 +1417,8 @@ class Program
             {
                 // Usamos la conexión existente y la transacción
                 string insertQuery = @"
-                INSERT INTO log_carga_cef (CEF, tipoError, fechaInicio, fechaFin, estado, reintentos, fechaRango, fechaRegistro) 
-                VALUES (@CEF, @tipoError, @fechaInicio, @fechaFin, @estado, @reintentos, @fechaRango, GETDATE())";
+            INSERT INTO log_carga_cef (CEF, tipoError, fechaInicio, fechaFin, estado, reintentos, fechaRango, fechaRegistro) 
+            VALUES (@CEF, @tipoError, @fechaInicio, @fechaFin, @estado, @reintentos, @fechaRango, GETDATE())";
 
                 using (var command = new SqlCommand(insertQuery, sqlConnection, transaction))
                 {
@@ -1448,20 +1435,21 @@ class Program
                     if (rowsAffected > 0)
                     {
                         registrado = true;  // Registro exitoso
+                        log.WriteLine($"[INFO] Registro {estado} realizado correctamente para CEF {cef}, Rango: {fechaRango}");
                     }
                     else
                     {
-                        log.WriteLine($"Advertencia: La inserción para CEF {cef} no afectó ninguna fila en la tabla log_carga_cef.");
+                        log.WriteLine($"[WARNING] La inserción para CEF {cef} no afectó ninguna fila en la tabla log_carga_cef.");
                     }
                 }
             }
             catch (SqlException sqlEx)
             {
-                log.WriteLine($"SQL Exception al registrar {estado} para CEF {cef}, intento {intentos + 1}: {sqlEx.Message}");
+                log.WriteLine($"[ERROR] SQL Exception al registrar {estado} para CEF {cef}, intento {intentos + 1}: {sqlEx.Message}");
             }
             catch (Exception ex)
             {
-                log.WriteLine($"Excepción al registrar {estado} para CEF {cef}, intento {intentos + 1}: {ex.Message}");
+                log.WriteLine($"[ERROR] Excepción al registrar {estado} para CEF {cef}, intento {intentos + 1}: {ex.Message}");
             }
 
             intentos++;
@@ -1474,9 +1462,10 @@ class Program
 
         if (!registrado)
         {
-            log.WriteLine($"Error: No se pudo registrar {estado} para CEF {cef} después de {MAX_RETRIES} intentos.");
+            log.WriteLine($"[ERROR] No se pudo registrar {estado} para CEF {cef} después de {MAX_RETRIES} intentos.");
         }
     }
+
 
 
 
