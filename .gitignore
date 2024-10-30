@@ -5,3 +5,5 @@ bin/
 obj/
 # Ignorar logs
 LOGS/
+
+.fake
