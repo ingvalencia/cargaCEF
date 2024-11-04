@@ -8,6 +8,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using SistemaConexionFirebird.Services;
 
 class Program
 {
@@ -47,7 +48,7 @@ class Program
             if (opcion == 0)
             {
                 // Calcular las fechas automáticas
-                fechaInicio = DateTime.Now.AddDays(-15).ToString("yyyy-MM-dd");
+                fechaInicio = DateTime.Now.AddDays(-1).ToString("yyyy-MM-dd");
                 fechaFin = DateTime.Now.AddDays(-1).ToString("yyyy-MM-dd");
 
                 Console.WriteLine("No hubo interacción. Procesando automáticamente...");
@@ -75,7 +76,7 @@ class Program
                     log.WriteLine("*****************************");
                     log.WriteLine("Inicio del Proceso de Carga CEF");
 
-                    using (var sqlConnection = new SqlConnection("Server=192.168.0.174;Database=COINTECH_DB;User Id=sa;Password=P@ssw0rd;"))
+                    using (var sqlConnection = new SqlConnection("Server=192.168.0.174;Database=COINTECH_DB_PRUEBAS;User Id=sa;Password=P@ssw0rd;"))
                     {
                         sqlConnection.Open();
 
@@ -153,6 +154,12 @@ class Program
                     string logVerificationFilePath = Path.Combine(logsDirectory, $"log_verificacion_ticket_{fechaActual}.txt");
                     //string logVerificationFilePath = $@"C:\Users\Administrador\Documents\Proyectos_Gio\log_verificacion_ticket_{fechaActual}.txt";
                     await VerificarConteoRegistrosPorCEF(listaCefsProcesados, fechaInicio, fechaFin, logVerificationFilePath);
+
+
+                    // Llamada para enviar notificaciones por correo si hay CEFs con errores
+                    await EnviarNotificacionesErroresAsync();
+
+
                 }
                 // Opción 2: Realizar solo el conteo de registros por CEF
                 else if (opcion == 2)
@@ -220,7 +227,7 @@ class Program
             log.WriteLine("*****************************");
             log.WriteLine($"Iniciando validación de errores pendientes en log_carga_cef. Fecha: {DateTime.Now}");
 
-            using (var sqlConnection = new SqlConnection("Server=192.168.0.174;Database=COINTECH_DB;User Id=sa;Password=P@ssw0rd;"))
+            using (var sqlConnection = new SqlConnection("Server=192.168.0.174;Database=COINTECH_DB_PRUEBAS;User Id=sa;Password=P@ssw0rd;"))
             {
                 await sqlConnection.OpenAsync();
 
@@ -291,6 +298,126 @@ class Program
             await ReintentarCefsFallidos(log);
         }
     }
+
+    // Método para obtener los CEF con carga fallida
+    public static async Task<List<(string cef, string rangoConsulta, string status)>> ObtenerCefsConCargaFallidaAsync()
+    {
+        var listaCefsFallidos = new List<(string cef, string rangoConsulta, string status)>();
+        string connectionString = "Server=192.168.0.174;Database=COINTECH_DB_PRUEBAS;User Id=sa;Password=P@ssw0rd;";
+
+        using (var connection = new SqlConnection(connectionString))
+        {
+            await connection.OpenAsync();
+            string query = "SELECT CEF, rangoConsulta,status FROM log_carga_cef_detallado WHERE carga = '0'";
+
+            using (var command = new SqlCommand(query, connection))
+            using (var reader = await command.ExecuteReaderAsync())
+            {
+                while (await reader.ReadAsync())
+                {
+                    string cef = reader["CEF"].ToString();
+                    string rangoConsulta = reader["rangoConsulta"].ToString();
+                    string status = reader["status"].ToString();
+                    listaCefsFallidos.Add((cef, rangoConsulta, status));
+                }
+            }
+        }
+
+        return listaCefsFallidos;
+    }
+
+    public static async Task<List<string>> ObtenerDestinatariosAsync()
+    {
+        var destinatarios = new List<string>();
+        string connectionString = "Server=192.168.0.174;Database=COINTECH_DB_PRUEBAS;User Id=sa;Password=P@ssw0rd;";
+
+        using (var connection = new SqlConnection(connectionString))
+        {
+            await connection.OpenAsync();
+            string query = "SELECT correo FROM usuarios_notificaciones WHERE vigente = 1";
+
+            using (var command = new SqlCommand(query, connection))
+            using (var reader = await command.ExecuteReaderAsync())
+            {
+                while (await reader.ReadAsync())
+                {
+                    destinatarios.Add(reader["correo"].ToString());
+                }
+            }
+        }
+
+        return destinatarios;
+    }
+
+    public static async Task EnviarNotificacionesErroresAsync()
+    {
+        // Obtener la lista de CEFs con carga fallida
+        var cefsFallidos = await ObtenerCefsConCargaFallidaAsync();
+        Console.WriteLine($"CEFs fallidos encontrados: {cefsFallidos.Count}");
+
+        // Obtener la lista de destinatarios vigentes
+        var destinatarios = await ObtenerDestinatariosAsync();
+        Console.WriteLine($"Destinatarios encontrados: {destinatarios.Count}");
+
+        // Verificar si hay CEFs fallidos
+        if (cefsFallidos.Count == 0)
+        {
+            Console.WriteLine("No hay CEFs con carga fallida.");
+            return;
+        }
+
+        // Verificar si hay destinatarios para enviar el correo
+        if (destinatarios.Count == 0)
+        {
+            Console.WriteLine("No hay destinatarios para la notificación.");
+            return;
+        }
+
+        // Construir el mensaje de notificación con HTML
+        var mensaje = @"
+    <html>
+        <body style='font-family: Arial, sans-serif; color: #333;'>
+            <h2 style='color: #d9534f; text-align: center;'>Notificación de Errores en la Carga de CEFs - Cointech</h2>
+            <p>Estimado usuario,</p>
+            <p>Los siguientes CEFs no se pudieron procesar correctamente:</p>
+            <table style='width: 100%; border-collapse: collapse; font-size: 14px;'>
+                <thead>
+                    <tr style='background-color: #f2f2f2; color: #333;'>
+                        <th style='border: 1px solid #ddd; padding: 12px; text-align: left; min-width: 100px;'>CEF</th>
+                        <th style='border: 1px solid #ddd; padding: 12px; text-align: left; min-width: 150px;'>Rango de Fechas</th>
+                        <th style='border: 1px solid #ddd; padding: 12px; text-align: left;'>Error</th>
+                    </tr>
+                </thead>
+                <tbody>";
+
+        // Agregar cada CEF y su rango en una fila de la tabla
+        foreach ((string cef, string rangoConsulta, string status) in cefsFallidos)
+        {
+            mensaje += $@"
+                    <tr>
+                        <td style='border: 1px solid #ddd; padding: 8px; text-align: left; background-color: #f9f9f9; white-space: nowrap;'>{cef}</td>
+                        <td style='border: 1px solid #ddd; padding: 8px; text-align: left; background-color: #f9f9f9;'>{rangoConsulta}</td>
+                        <td style='border: 1px solid #ddd; padding: 8px; text-align: left; background-color: #f9f9f9;'>{status}</td>
+                    </tr>";
+        }
+
+        mensaje += @"
+                </tbody>
+            </table>
+            <p style='color: #888; font-size: 0.9em; margin-top: 20px;'>Por favor, revise estos errores y tome las acciones necesarias.</p>
+            <p>Atentamente,<br>Equipo de T.I</p>
+        </body>
+    </html>";
+
+        // Enviar el mensaje a cada destinatario
+        foreach (var destinatario in destinatarios)
+        {
+            var notifier = new EmailNotifier("smtp.gmail.com", 587, "ing.gvalenci@gmail.com", "nfpa flvg gfny azga", true);
+            await notifier.EnviarCorreoAsync(destinatario, "Notificación de errores en carga de CEFs -Cointech", mensaje);
+            Console.WriteLine($"Notificación enviada a: {destinatario}");
+        }
+    }
+
 
 
     // Método para mostrar el menú de opciones
@@ -398,7 +525,7 @@ class Program
                 -- Insertar en @tab los tickets de Cointech
                 insert into @tab
                 SELECT [CEF], CAST([FECHA] AS date) AS fecha, 0 AS num_tickete_fapos, count([FECHA]) AS num_tickete_cointe
-                FROM [COINTECH_DB].[dbo].[tickets_db_cointech_cef]
+                FROM [COINTECH_DB_PRUEBAS].[dbo].[tickets_db_cointech_cef]
                 GROUP BY CEF, fecha
                 ORDER BY fecha, CEF;
 
@@ -454,14 +581,14 @@ class Program
         int intento = 0;
         int totalRegistrosInsertados = 0;
         int delay = 2000; // Tiempo inicial de espera en milisegundos.
-        string sqlServerConnectionString = "Server=192.168.0.174;Database=COINTECH_DB;User Id=sa;Password=P@ssw0rd;";
+        string sqlServerConnectionString = "Server=192.168.0.174;Database=COINTECH_DB_PRUEBAS;User Id=sa;Password=P@ssw0rd;";
 
         while (intento < MAX_RETRIES)
         {
             try
             {
                 intento++;
-                log.WriteLine($"[INFO] Intento {intento} de {MAX_RETRIES} para procesar CEF {cef}");
+                //log.WriteLine($"[INFO] Intento {intento} de {MAX_RETRIES} para procesar CEF {cef}");
 
                 // Cada intento tiene su propia conexión y transacción
                 using (var sqlConnection = new SqlConnection(sqlServerConnectionString))
@@ -543,41 +670,51 @@ class Program
             // Registro de inicio del proceso de verificación
             logVerification.WriteLine($"Proceso de verificación iniciado: {DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss")}");
 
+            // Conexión a SQL Server para insertar en log_carga_cef_detallado
+            string sqlServerConnectionString = "Server=192.168.0.174;Database=COINTECH_DB_PRUEBAS;User Id=sa;Password=P@ssw0rd;";
+
             foreach (var cefDatos in listaCefsProcesados)
             {
                 DateTime inicioCEF = DateTime.Now;
                 logVerification.WriteLine("*****************************");
                 logVerification.WriteLine($"CEF {cefDatos.sigla}:");
 
+                int registrosSqlServer = 0;
+                int registrosFirebird = 0;
+                string status = "EXITO";
+                string carga = "OK";
+
                 try
                 {
                     // Realizar consulta para el rango de fechas completo (fechaInicio - fechaFin)
                     logVerification.WriteLine($"Rango de consulta: {fechaInicio} a {fechaFin}");
 
-                    int countSqlServer = await ObtenerConteoSqlServer(cefDatos.sigla, fechaInicio, fechaFin);
-                    int countFirebird = await ObtenerConteoFirebird(cefDatos, fechaInicio, fechaFin);
+                    registrosSqlServer = await ObtenerConteoSqlServer(cefDatos.sigla, fechaInicio, fechaFin);
+                    registrosFirebird = await ObtenerConteoFirebird(cefDatos, fechaInicio, fechaFin);
 
                     // Verificación inicial
-                    logVerification.WriteLine($"Registros consultados en SQL Server: {countSqlServer}");
-                    logVerification.WriteLine($"Registros consultados en Firebird: {countFirebird}");
+                    logVerification.WriteLine($"Registros consultados en SQL Server: {registrosSqlServer}");
+                    logVerification.WriteLine($"Registros consultados en Firebird: {registrosFirebird}");
 
                     // Si los conteos son distintos, realizar una segunda verificación
-                    if (countSqlServer != countFirebird)
+                    if (registrosSqlServer != registrosFirebird)
                     {
                         logVerification.WriteLine("*** Conteo del CEF distinto, se volverá a proceder el conteo. ***");
 
                         // Segunda verificación
-                        countSqlServer = await ObtenerConteoSqlServer(cefDatos.sigla, fechaInicio, fechaFin);
-                        countFirebird = await ObtenerConteoFirebird(cefDatos, fechaInicio, fechaFin);
+                        registrosSqlServer = await ObtenerConteoSqlServer(cefDatos.sigla, fechaInicio, fechaFin);
+                        registrosFirebird = await ObtenerConteoFirebird(cefDatos, fechaInicio, fechaFin);
 
-                        logVerification.WriteLine($"[Reintento] Registros en SQL Server: {countSqlServer}");
-                        logVerification.WriteLine($"[Reintento] Registros en Firebird: {countFirebird}");
+                        logVerification.WriteLine($"[Reintento] Registros en SQL Server: {registrosSqlServer}");
+                        logVerification.WriteLine($"[Reintento] Registros en Firebird: {registrosFirebird}");
 
                         // Si siguen siendo diferentes después del segundo intento
-                        if (countSqlServer != countFirebird)
+                        if (registrosSqlServer != registrosFirebird)
                         {
                             logVerification.WriteLine("*** Conteo del CEF sigue siendo distinto. Reportando como inconsistente. ***");
-                            logVerification.WriteLine($"Diferencia SQL Server: {countSqlServer} - Firebird: {countFirebird}");
+                            logVerification.WriteLine($"Diferencia SQL Server: {registrosSqlServer} - Firebird: {registrosFirebird}");
+                            status = "WARNING";
+                            carga = "0";  // Conteos distintos, advertencia
                         }
                         else
                         {
@@ -592,14 +729,20 @@ class Program
                 catch (SqlException sqlEx)
                 {
                     logVerification.WriteLine($"*** Error de conexión SQL Server para CEF {cefDatos.sigla}: {sqlEx.Message} ***");
+                    status = sqlEx.Message.Replace("\"", "").Replace("'", "");
+                    carga = "0";  // Error en la conexión SQL Server
                 }
                 catch (OdbcException odbcEx)
                 {
                     logVerification.WriteLine($"*** Error de conexión Firebird para CEF {cefDatos.sigla}: {odbcEx.Message} ***");
+                    status = odbcEx.Message.Replace("\"", "").Replace("'", "");
+                    carga = "0";  // Error en la conexión Firebird
                 }
                 catch (Exception ex)
                 {
                     logVerification.WriteLine($"*** Error general para CEF {cefDatos.sigla}: {ex.Message} ***");
+                    status = ex.Message.Replace("\"", "").Replace("'", "");
+                    carga = "0";  // Error general
                 }
 
                 DateTime finCEF = DateTime.Now;
@@ -610,6 +753,32 @@ class Program
                 logVerification.WriteLine($"Fin de la consulta: {finCEF.ToString("yyyy-MM-dd HH:mm:ss")}");
                 logVerification.WriteLine($"Tiempo total de consulta para el CEF {cefDatos.sigla}: {tiempoFormateadoCEF}");
                 logVerification.WriteLine("*****************************");
+
+                // Insertar en la tabla log_carga_cef_detallado
+                /*
+                using (var sqlConnection = new SqlConnection(sqlServerConnectionString))
+                {
+                    await sqlConnection.OpenAsync();
+
+                    string insertQuery = @"
+                    INSERT INTO COINTECH_DB_PRUEBAS.dbo.log_carga_cef_detallado 
+                    (CEF, rangoConsulta, registrosSqlServer, registrosFirebird, status, carga, fechaRegistro) 
+                    VALUES 
+                    (@CEF, @rangoConsulta, @registrosSqlServer, @registrosFirebird, @status, @carga, GETDATE())";
+
+                    using (var command = new SqlCommand(insertQuery, sqlConnection))
+                    {
+                        command.Parameters.AddWithValue("@CEF", cefDatos.sigla);
+                        command.Parameters.AddWithValue("@rangoConsulta", $"{fechaInicio} - {fechaFin}");
+                        command.Parameters.AddWithValue("@registrosSqlServer", registrosSqlServer);
+                        command.Parameters.AddWithValue("@registrosFirebird", registrosFirebird);
+                        command.Parameters.AddWithValue("@status", status);
+                        command.Parameters.AddWithValue("@carga", carga);
+
+                        await command.ExecuteNonQueryAsync();
+                    }
+                }
+                */
             }
 
             // Registro del fin del proceso de verificación
@@ -618,11 +787,9 @@ class Program
     }
 
 
-
-
     static async Task<int> ObtenerConteoSqlServer(string cef, string fechaInicio, string fechaFin)
     {
-        string sqlServerConnectionString = "Server=192.168.0.174;Database=COINTECH_DB;User Id=sa;Password=P@ssw0rd;";
+        string sqlServerConnectionString = "Server=192.168.0.174;Database=COINTECH_DB_PRUEBAS;User Id=sa;Password=P@ssw0rd;";
         int count = 0;
 
         // Definir la ruta del log directamente aquí
@@ -634,7 +801,7 @@ class Program
             {
                 await sqlConnection.OpenAsync();
 
-                string query = @"SELECT COUNT(*) FROM COINTECH_DB.dbo.tickets_db_cointech_cef 
+                string query = @"SELECT COUNT(*) FROM COINTECH_DB_PRUEBAS.dbo.tickets_db_cointech_cef 
                              WHERE CEF = @CEF AND CAST(FECHA AS DATE) BETWEEN @fechaInicio AND @fechaFin;";
 
                 using (var command = new SqlCommand(query, sqlConnection))
@@ -678,37 +845,53 @@ class Program
         try
         {
             string firebirdConnectionString = $"DRIVER={{Firebird/Interbase(r) driver}};DATABASE={cefDatos.ipserver}/3050:{cefDatos.rutadb};UID={cefDatos.userdb};PWD={cefDatos.passdb};";
+            string sqlServerConnectionString = "Server=192.168.0.174;Database=DWBI_PRUEBAS;User Id=sa;Password=P@ssw0rd;";
 
+            // Obtener el valor de 'region' para este CEF desde SQL Server
+            string region = null;
+            string regionQuery = "SELECT region FROM ADM_CEFS WHERE sigla = @cef and activo = 1";
+
+            using (var sqlConnection = new SqlConnection(sqlServerConnectionString))
+            {
+                await sqlConnection.OpenAsync();
+                using (var command = new SqlCommand(regionQuery, sqlConnection))
+                {
+                    command.Parameters.AddWithValue("@cef", cefDatos.sigla);
+                    var result = await command.ExecuteScalarAsync();
+                    region = result != DBNull.Value ? result?.ToString() : null;
+                }
+            }
+
+            // Definir la consulta de Firebird basada en el valor de 'region'
+            string query;
+
+            if (region == "UP")
+            {
+                // Consulta específica para CEFs con region "UP"
+                query = @"SELECT COUNT(*) FROM caj_turnos a
+                      INNER JOIN caj_transacciones b ON a.idturnocaja = b.idturnocaja
+                      INNER JOIN pos_transacciones c ON b.idtranpos = c.idtranpos
+                      WHERE CAST(a.fechaadministrativa AS DATE) BETWEEN ? AND ? 
+                      AND b.importe <> 0 
+                      AND c.numcomprobante > 0 
+                      AND a.numerocaja - 200 >= 20;";
+            }
+            else
+            {
+                // Consulta para CEFs con region distinta de "UP"
+                query = @"SELECT COUNT(*) FROM caj_turnos a
+                      INNER JOIN caj_transacciones b ON a.idturnocaja = b.idturnocaja
+                      INNER JOIN pos_transacciones c ON b.idtranpos = c.idtranpos
+                      WHERE CAST(a.fechaadministrativa AS DATE) BETWEEN ? AND ? 
+                      AND b.importe <> 0 
+                      AND c.numcomprobante > 0 
+                      AND a.numerocaja - 200 < 20;";
+            }
+
+            // Ejecutar la consulta en Firebird
             using (var firebirdConnection = new OdbcConnection(firebirdConnectionString))
             {
                 await firebirdConnection.OpenAsync();
-
-                // Definir la consulta basada en la terminación de la sigla CEF
-                string query;
-
-                if (cefDatos.sigla.EndsWith("UP"))
-                {
-                    // Consulta específica para CEFs que terminan en "UP"
-                    query = @"SELECT COUNT(*) FROM caj_turnos a
-                          INNER JOIN caj_transacciones b ON a.idturnocaja = b.idturnocaja
-                          INNER JOIN pos_transacciones c ON b.idtranpos = c.idtranpos
-                          WHERE CAST(a.fechaadministrativa AS DATE) BETWEEN ? AND ? 
-                          AND b.importe <> 0 
-                          AND c.numcomprobante > 0 
-                          AND a.numerocaja - 200 >= 20;";
-                }
-                else
-                {
-                    // Consulta para CEFs que no terminan en "UP"
-                    query = @"SELECT COUNT(*) FROM caj_turnos a
-                          INNER JOIN caj_transacciones b ON a.idturnocaja = b.idturnocaja
-                          INNER JOIN pos_transacciones c ON b.idtranpos = c.idtranpos
-                          WHERE CAST(a.fechaadministrativa AS DATE) BETWEEN ? AND ? 
-                          AND b.importe <> 0 
-                          AND c.numcomprobante > 0 
-                          AND a.numerocaja - 200 < 20;";
-                }
-
                 using (var command = new OdbcCommand(query, firebirdConnection))
                 {
                     command.CommandTimeout = 600;
@@ -743,11 +926,10 @@ class Program
         return count;
     }
 
-
     //Método para reintentar los CEFs que fallaron en el proceso anterior
     static async Task ReintentarCefsFallidos(StreamWriter log)
     {
-        using (var sqlConnection = new SqlConnection("Server=192.168.0.174;Database=COINTECH_DB;User Id=sa;Password=P@ssw0rd;"))
+        using (var sqlConnection = new SqlConnection("Server=192.168.0.174;Database=COINTECH_DB_PRUEBAS;User Id=sa;Password=P@ssw0rd;"))
         {
             await sqlConnection.OpenAsync();
             string query = "SELECT CEF, fechaInicio, fechaFin FROM log_carga_cef WHERE estado = 'Fallido'";
@@ -795,7 +977,7 @@ class Program
     {
         string fechaInicio = string.Empty;
         string fechaFin = string.Empty;
-        string sqlServerConnectionString = "Server=192.168.0.174;Database=COINTECH_DB;User Id=sa;Password=P@ssw0rd;";
+        string sqlServerConnectionString = "Server=192.168.0.174;Database=COINTECH_DB_PRUEBAS;User Id=sa;Password=P@ssw0rd;";
 
         try
         {
@@ -979,9 +1161,13 @@ class Program
     }
 
 
+
     static async Task<TimeSpan> ProcesarCefs(List<(string sigla, string ipserver, string rutadb, string userdb, string passdb)> listaCefs, string fechaInicio, string fechaFin, StreamWriter log, List<(string cef, int totalRegistros, double tiempoSegundos)> detallesCefs)
     {
-        TimeSpan tiempoTotal = TimeSpan.Zero; // Variable para acumular el tiempo total de procesamiento de los CEFs
+        TimeSpan tiempoTotal = TimeSpan.Zero; // Acumula el tiempo total de procesamiento
+
+        // Configurar la conexión a la base de datos para insertar en log_carga_cef_detallado
+        string sqlServerConnectionString = "Server=192.168.0.174;Database=COINTECH_DB_PRUEBAS;User Id=sa;Password=P@ssw0rd;";
 
         foreach (var cefDatos in listaCefs)
         {
@@ -996,18 +1182,36 @@ class Program
             log.WriteLine($"Fechas a procesar: {fechaInicio} - {fechaFin}");
 
             int totalRegistrosInsertados = 0;
+            int registrosSqlServer = 0;
+            int registrosFirebird = 0;
             bool fallo = false;
             string mensajeFallo = string.Empty;
+            string status = "EXITO";
+            string carga = "OK";
 
             try
             {
-                // Procesa el CEF y almacena los registros insertados
+                // Procesa el CEF y obtiene los registros
                 totalRegistrosInsertados = await ProcesarCEFConLogAsync(cefDatos.sigla, cefDatos.ipserver, cefDatos.rutadb, cefDatos.userdb, cefDatos.passdb, fechaInicio, fechaFin, log);
+
+                // Simulación de obtención de registros de SQL Server y Firebird (debes reemplazar con tu lógica real)
+                registrosSqlServer = await ObtenerConteoSqlServer(cefDatos.sigla, fechaInicio, fechaFin);
+                registrosFirebird = await ObtenerConteoFirebird(cefDatos, fechaInicio, fechaFin);
+
+                // Comparar registros y establecer estado de carga
+                if (registrosSqlServer != registrosFirebird)
+                {
+                    status = "WARNING"; // Si los registros son distintos, advertencia
+                    carga = "0"; // La carga no fue exitosa
+                }
+
             }
             catch (Exception ex)
             {
                 fallo = true;
                 mensajeFallo = $"Fallo: {ex.Message}";
+                status = ex.Message.Replace("\"", "").Replace("'", "");
+                carga = "0"; // Si hay un fallo, la carga es 0
             }
 
             DateTime finCEF = DateTime.Now;
@@ -1038,6 +1242,30 @@ class Program
 
             // Guardar detalles para el resumen final
             detallesCefs.Add((cefDatos.sigla, totalRegistrosInsertados, duracionProceso.TotalSeconds));
+
+            // Insertar en la tabla log_carga_cef_detallado
+            using (var sqlConnection = new SqlConnection(sqlServerConnectionString))
+            {
+                await sqlConnection.OpenAsync();
+
+                string insertQuery = @"
+                INSERT INTO COINTECH_DB_PRUEBAS.dbo.log_carga_cef_detallado 
+                (CEF, rangoConsulta, registrosSqlServer, registrosFirebird, status, carga, fechaRegistro) 
+                VALUES 
+                (@CEF, @rangoConsulta, @registrosSqlServer, @registrosFirebird, @status, @carga, GETDATE())";
+
+                using (var command = new SqlCommand(insertQuery, sqlConnection))
+                {
+                    command.Parameters.AddWithValue("@CEF", cefDatos.sigla);
+                    command.Parameters.AddWithValue("@rangoConsulta", $"{fechaInicio} - {fechaFin}");
+                    command.Parameters.AddWithValue("@registrosSqlServer", registrosSqlServer);
+                    command.Parameters.AddWithValue("@registrosFirebird", registrosFirebird);
+                    command.Parameters.AddWithValue("@status", status);
+                    command.Parameters.AddWithValue("@carga", carga);
+
+                    await command.ExecuteNonQueryAsync();
+                }
+            }
         }
 
         // Retornar el tiempo total acumulado de los CEFs procesados
@@ -1045,19 +1273,23 @@ class Program
     }
 
 
+
     static async Task<int> ProcesarCEFConLogAsync(string cef, string ipserver, string rutadb, string userdb, string passdb, string fechaInicio, string fechaFin, StreamWriter log)
     {
         string firebirdConnectionString = $"DRIVER={{Firebird/Interbase(r) driver}};DATABASE={ipserver}/3050:{rutadb};UID={userdb};PWD={passdb};";
-        string sqlServerConnectionString = "Server=192.168.0.174;Database=COINTECH_DB;User Id=sa;Password=P@ssw0rd;";
+        string sqlServerConnectionString = "Server=192.168.0.174;Database=COINTECH_DB_PRUEBAS;User Id=sa;Password=P@ssw0rd;";
         int totalRegistrosInsertados = 0;
 
-        //log.WriteLine($"[INFO] Iniciando proceso para CEF {cef} desde {fechaInicio} hasta {fechaFin}");
+        int registrosSqlServer = 0;
+        int registrosFirebird = 0;
+        string status = "EXITO";
+        string carga = "OK";
 
         try
         {
             using (var firebirdConnection = new OdbcConnection(firebirdConnectionString))
             using (var sqlConnection = new SqlConnection(sqlServerConnectionString))
-            
+            {
                 await firebirdConnection.OpenAsync();
                 //log.WriteLine("[INFO] Conexión Firebird abierta exitosamente");
                 await sqlConnection.OpenAsync();
@@ -1075,20 +1307,16 @@ class Program
                             string fechaActual = fechaInicioDT.ToString("yyyy-MM-dd");
                             //log.WriteLine($"[INFO] Procesando registros para la fecha {fechaActual}...");
 
-                            // Llamada al método que procesa la carga por día
+                            // Realizar proceso de carga por día
                             int registrosDia = await RealizarProcesoDeCargaPorDia(firebirdConnection, sqlConnection, cef, fechaActual, fechaActual, sqlTransaction, log);
+                            totalRegistrosInsertados += registrosDia;
 
                             //log.WriteLine($"[INFO] Registros insertados para {fechaActual}: {registrosDia}");
-
-                            // Acumular los registros insertados en total
-                            totalRegistrosInsertados += registrosDia;
 
                             fechaInicioDT = fechaInicioDT.AddDays(1);
                         }
 
-                        //log.WriteLine($"[INFO] Total registros insertados para el CEF {cef}: {totalRegistrosInsertados}");
-
-                        // Si todo fue bien, hacemos commit
+                        // Commit de la transacción si todo salió bien
                         sqlTransaction.Commit();
                         //log.WriteLine("[INFO] Commit realizado correctamente en SQL Server");
                     }
@@ -1102,21 +1330,62 @@ class Program
                         throw;
                     }
                 }
+
+                // Obtener registros de SQL Server y Firebird
+                registrosSqlServer = await ObtenerConteoSqlServer(cef, fechaInicio, fechaFin);
+                registrosFirebird = await ObtenerConteoFirebird((cef, ipserver, rutadb, userdb, passdb), fechaInicio, fechaFin);
+
+                // Evaluar el estado de la carga
+                if (registrosSqlServer != registrosFirebird)
+                {
+                    status = "WARNING";
+                    carga = "0";  // Si hay diferencias entre los registros
+                }
             }
         }
         catch (Exception ex)
         {
             log.WriteLine($"[ERROR] Error al procesar el CEF {cef}: {ex.Message}");
+            status = ex.Message.Replace("\"", "").Replace("'", "");
+            carga = "0";  // Si hay un error, la carga es 0
             throw;
         }
+
+        // Insertar en la tabla log_carga_cef_detallado
+        /*
+        using (var sqlConnection = new SqlConnection(sqlServerConnectionString))
+        {
+            await sqlConnection.OpenAsync();
+
+            string insertQuery = @"
+            INSERT INTO COINTECH_DB_PRUEBAS.dbo.log_carga_cef_detallado 
+            (CEF, rangoConsulta, registrosSqlServer, registrosFirebird, status, carga, fechaRegistro) 
+            VALUES 
+            (@CEF, @rangoConsulta, @registrosSqlServer, @registrosFirebird, @status, @carga, GETDATE())";
+
+            using (var command = new SqlCommand(insertQuery, sqlConnection))
+            {
+                command.Parameters.AddWithValue("@CEF", cef);
+                command.Parameters.AddWithValue("@rangoConsulta", $"{fechaInicio} - {fechaFin}");
+                command.Parameters.AddWithValue("@registrosSqlServer", registrosSqlServer);
+                command.Parameters.AddWithValue("@registrosFirebird", registrosFirebird);
+                command.Parameters.AddWithValue("@status", status);
+                command.Parameters.AddWithValue("@carga", carga);
+
+                await command.ExecuteNonQueryAsync();
+            }
+        }
+        */
+
 
         return totalRegistrosInsertados;
     }
 
 
+
     static async Task<int> ObtenerConteoRegistrosSqlServer(SqlConnection sqlConnection, string cef, string fechaActual, SqlTransaction transaction, StreamWriter log)
     {
-        string query = @"SELECT COUNT(*) FROM COINTECH_DB.dbo.tickets_db_cointech_cef 
+        string query = @"SELECT COUNT(*) FROM COINTECH_DB_PRUEBAS.dbo.tickets_db_cointech_cef 
                  WHERE CEF = @CEF AND CAST(FECHA AS DATE) = @Fecha";
 
         // Verificar si el objeto `log` no es nulo antes de escribir en él
@@ -1159,8 +1428,34 @@ class Program
     {
         string query;
 
-        // Definir la consulta en función de la terminación del CEF
-        if (cef.EndsWith("UP"))
+        // Cadena de conexión a SQL Server
+        string sqlServerConnectionString = "Server=192.168.0.174;Database=DWBI_PRUEBAS;User Id=sa;Password=P@ssw0rd;";
+
+        // Obtener el valor de 'region' para el CEF proporcionado
+        string region = null;
+        string regionQuery = "SELECT region FROM ADM_CEFS WHERE sigla = @cef and activo = 1";
+
+        try
+        {
+            using (var sqlConnection = new SqlConnection(sqlServerConnectionString))
+            {
+                await sqlConnection.OpenAsync();
+                using (var command = new SqlCommand(regionQuery, sqlConnection))
+                {
+                    command.Parameters.AddWithValue("@cef", cef);
+                    var result = await command.ExecuteScalarAsync();
+                    region = result != DBNull.Value ? result?.ToString() : null;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            log?.WriteLine($"[ERROR] Error al obtener la región para el CEF {cef}: {ex.Message}");
+            throw;
+        }
+
+        // Definir la consulta de Firebird basada en el valor de 'region'
+        if (region == "UP")
         {
             query = @"SELECT COUNT(*) FROM caj_turnos a
                   INNER JOIN caj_transacciones b ON a.idturnocaja = b.idturnocaja
@@ -1187,7 +1482,7 @@ class Program
             //log.WriteLine($"[INFO] Iniciando conteo de registros en Firebird para CEF {cef}, rango: {fechaInicio} a {fechaFin}");
         }
 
-        // Asegurarse de que la conexión esté abierta
+        // Asegurarse de que la conexión a Firebird esté abierta
         if (firebirdConnection.State != ConnectionState.Open)
         {
             await firebirdConnection.OpenAsync();
@@ -1197,7 +1492,7 @@ class Program
             }
         }
 
-        // Ejecutar la consulta
+        // Ejecutar la consulta en Firebird
         using (var command = new OdbcCommand(query, firebirdConnection))
         {
             command.Parameters.AddWithValue("?", fechaInicio);
@@ -1227,18 +1522,43 @@ class Program
         }
     }
 
-
     static async Task<int> RealizarProcesoDeCargaPorDia(OdbcConnection firebirdConnection, SqlConnection sqlConnection, string cef, string fechaInicio, string fechaFin, SqlTransaction transaction, StreamWriter log)
     {
         int batchSize = 10000;  // Número de registros por lote para la inserción masiva
         int totalRegistrosInsertados = 0;
-
-        // Definir la consulta basada en la terminación del CEF
         string query;
 
-        if (cef.EndsWith("UP"))
+        // Consulta para obtener el valor de 'region' para el CEF proporcionado
+        string region = null;
+        string regionQuery = "SELECT region FROM ADM_CEFS WHERE sigla = @cef and activo = 1";
+
+        // Cadena de conexión a SQL Server para acceder a la tabla ADM_CEFS
+        string sqlServerConnectionString = "Server=192.168.0.174;Database=DWBI_PRUEBAS;User Id=sa;Password=P@ssw0rd;";
+
+        try
         {
-            // Consulta específica para CEFs que terminan en "UP"
+            // Abre la conexión a SQL Server y ejecuta la consulta para obtener el valor de 'region'
+            using (var sqlConnectionForRegion = new SqlConnection(sqlServerConnectionString))
+            {
+                await sqlConnectionForRegion.OpenAsync();
+                using (var command = new SqlCommand(regionQuery, sqlConnectionForRegion))
+                {
+                    command.Parameters.AddWithValue("@cef", cef);
+                    var result = await command.ExecuteScalarAsync();
+                    region = result != DBNull.Value ? result?.ToString() : null;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            log.WriteLine($"[ERROR] Error al obtener la región para el CEF {cef}: {ex.Message}");
+            throw;
+        }
+
+        // Verificar el valor de 'region' y definir la consulta correspondiente
+        if (region == "UP")
+        {
+            // Consulta específica para CEFs con region "UP"
             query = @"SELECT 
         CAST(b.idtranpos AS VARCHAR(500)) AS id_transaccion, 
         CAST(CAST(c.fechayhora AS TIME) AS VARCHAR(500)) AS hora, 
@@ -1247,13 +1567,13 @@ class Program
         CAST(c.numcomprobante AS VARCHAR(500)) AS numero_comprobante, 
         CAST(b.importe AS VARCHAR(500)) AS importe, 
         CAST(a.fechaadministrativa AS DATE) AS fecha
-        FROM 
+    FROM 
         caj_turnos a
-        INNER JOIN 
+    INNER JOIN 
         caj_transacciones b ON a.idturnocaja = b.idturnocaja
-        INNER JOIN 
+    INNER JOIN 
         pos_transacciones c ON b.idtranpos = c.idtranpos
-        WHERE 
+    WHERE 
         CAST(a.fechaadministrativa AS DATE) BETWEEN ? AND ? 
         AND b.importe <> 0 
         AND c.numcomprobante > 0 
@@ -1261,7 +1581,7 @@ class Program
         }
         else
         {
-            // Consulta para CEFs que no terminan en "UP"
+            // Consulta para CEFs con region distinta de "UP" (incluye NULL o valores en blanco)
             query = @"SELECT DISTINCT
         CAST(b.idtranpos AS VARCHAR(500)) AS id_transaccion, 
         CAST(CAST(c.fechayhora AS TIME) AS VARCHAR(500)) AS hora, 
@@ -1270,13 +1590,13 @@ class Program
         CAST(c.numcomprobante AS VARCHAR(500)) AS numero_comprobante, 
         CAST(b.importe AS VARCHAR(500)) AS importe, 
         CAST(a.fechaadministrativa AS DATE) AS fecha
-        FROM 
+    FROM 
         caj_turnos a
-        INNER JOIN 
+    INNER JOIN 
         caj_transacciones b ON a.idturnocaja = b.idturnocaja
-        INNER JOIN 
+    INNER JOIN 
         pos_transacciones c ON b.idtranpos = c.idtranpos
-        WHERE 
+    WHERE 
         CAST(a.fechaadministrativa AS DATE) BETWEEN ? AND ? 
         AND b.importe <> 0 
         AND c.numcomprobante > 0 
@@ -1337,7 +1657,7 @@ class Program
                         {
                             using (SqlBulkCopy bulkCopy = new SqlBulkCopy(sqlConnection, SqlBulkCopyOptions.Default, transaction))
                             {
-                                bulkCopy.DestinationTableName = "COINTECH_DB.dbo.tickets_db_cointech_cef";
+                                bulkCopy.DestinationTableName = "COINTECH_DB_PRUEBAS.dbo.tickets_db_cointech_cef";
                                 bulkCopy.BulkCopyTimeout = 600;  // Establecer tiempo de espera para la inserción
                                 bulkCopy.BatchSize = batchSize;
 
@@ -1388,15 +1708,18 @@ class Program
         return totalRegistrosInsertados;
     }
 
+
+
+
     // Modificado para aceptar la conexión y la transacción existentes
     static async Task RegistrarErrorCEF(SqlConnection sqlConnection, SqlTransaction transaction, string cef, string mensaje, string fechaInicio, string fechaFin, bool exito, StreamWriter log)
     {
         string estado = exito ? "Completo" : "Fallido";
+        string status = exito ? "EXITO" : "ERROR";
+        string carga = exito ? "OK" : "0";  // Si fue exitoso, carga OK; si falló, carga 0
+        string fechaRango = $"{fechaInicio} - {fechaFin}";
         int intentos = 0;
         bool registrado = false;
-
-        // Calcular el rango de fechas
-        string fechaRango = $"{fechaInicio} - {fechaFin}";
 
         // Validar longitud de los campos para evitar errores en la base de datos
         if (cef.Length > 10)
@@ -1415,10 +1738,10 @@ class Program
         {
             try
             {
-                // Usamos la conexión existente y la transacción
+                // Registrar en la tabla log_carga_cef original
                 string insertQuery = @"
-            INSERT INTO log_carga_cef (CEF, tipoError, fechaInicio, fechaFin, estado, reintentos, fechaRango, fechaRegistro) 
-            VALUES (@CEF, @tipoError, @fechaInicio, @fechaFin, @estado, @reintentos, @fechaRango, GETDATE())";
+                INSERT INTO log_carga_cef (CEF, tipoError, fechaInicio, fechaFin, estado, reintentos, fechaRango, fechaRegistro) 
+                VALUES (@CEF, @tipoError, @fechaInicio, @fechaFin, @estado, @reintentos, @fechaRango, GETDATE())";
 
                 using (var command = new SqlCommand(insertQuery, sqlConnection, transaction))
                 {
@@ -1434,13 +1757,32 @@ class Program
 
                     if (rowsAffected > 0)
                     {
-                        registrado = true;  // Registro exitoso
-                        log.WriteLine($"[INFO] Registro {estado} realizado correctamente para CEF {cef}, Rango: {fechaRango}");
+                        registrado = true;
+                        //log.WriteLine($"[INFO] Registro {estado} realizado correctamente para CEF {cef}, Rango: {fechaRango}");
                     }
                     else
                     {
                         log.WriteLine($"[WARNING] La inserción para CEF {cef} no afectó ninguna fila en la tabla log_carga_cef.");
                     }
+                }
+
+                // Registrar en la tabla log_carga_cef_detallado
+                string insertQueryDetallado = @"
+                INSERT INTO COINTECH_DB_PRUEBAS.dbo.log_carga_cef_detallado 
+                (CEF, rangoConsulta, registrosSqlServer, registrosFirebird, status, carga, fechaRegistro) 
+                VALUES 
+                (@CEF, @rangoConsulta, @registrosSqlServer, @registrosFirebird, @status, @carga, GETDATE())";
+
+                using (var commandDetallado = new SqlCommand(insertQueryDetallado, sqlConnection, transaction))
+                {
+                    commandDetallado.Parameters.AddWithValue("@CEF", cef);
+                    commandDetallado.Parameters.AddWithValue("@rangoConsulta", fechaRango);
+                    commandDetallado.Parameters.AddWithValue("@registrosSqlServer", 0); // No se registran conteos en este momento
+                    commandDetallado.Parameters.AddWithValue("@registrosFirebird", 0);  // No se registran conteos en este momento
+                    commandDetallado.Parameters.AddWithValue("@status", status);
+                    commandDetallado.Parameters.AddWithValue("@carga", carga);
+
+                    await commandDetallado.ExecuteNonQueryAsync();
                 }
             }
             catch (SqlException sqlEx)
@@ -1467,11 +1809,9 @@ class Program
     }
 
 
-
-
     static async Task<bool> VerificarExistenciaRegistros(SqlConnection sqlConnection, string fechaInicio, string fechaFin, string cef, StreamWriter log)
     {
-        string query = @"SELECT COUNT(*) FROM COINTECH_DB.dbo.tickets_db_cointech_cef 
+        string query = @"SELECT COUNT(*) FROM COINTECH_DB_PRUEBAS.dbo.tickets_db_cointech_cef 
                     WHERE CEF = @CEF AND CAST(FECHA AS DATE) BETWEEN @fechaInicio AND @fechaFin;";
         try
         {
@@ -1495,7 +1835,7 @@ class Program
 
     static async Task EliminarRegistrosEnRango(SqlConnection sqlConnection, string fechaInicio, string fechaFin, StreamWriter log, string cef = null)
     {
-        string deleteQuery = @"DELETE FROM COINTECH_DB.dbo.tickets_db_cointech_cef 
+        string deleteQuery = @"DELETE FROM COINTECH_DB_PRUEBAS.dbo.tickets_db_cointech_cef 
                             WHERE CAST(FECHA AS DATE) BETWEEN @fechaInicio AND @fechaFin";
 
         if (!string.IsNullOrEmpty(cef))
@@ -1568,7 +1908,7 @@ class Program
 
     static (string ipserver, string rutadb, string userdb, string passdb) ObtenerDatosConexion(string cef)
     {
-        string sqlServerConnectionString = "Server=192.168.0.174;Database=DWBI;User Id=sa;Password=P@ssw0rd;";
+        string sqlServerConnectionString = "Server=192.168.0.174;Database=DWBI_PRUEBAS;User Id=sa;Password=P@ssw0rd;";
 
         try
         {
@@ -1576,7 +1916,7 @@ class Program
             {
                 sqlConnection.Open();
 
-                string query = "SELECT ipserver, rutadb, userdb, passdb FROM ADM_CEFS WHERE sigla = @cef and activo = 1";
+                string query = "SELECT ipserver, rutadb, userdb, passdb, region FROM ADM_CEFS WHERE sigla = @cef and activo = 1";
                 using (var command = new SqlCommand(query, sqlConnection))
                 {
                     command.Parameters.AddWithValue("@cef", cef);
@@ -1609,7 +1949,7 @@ class Program
     {
         List<(string sigla, string ipserver, string rutadb, string userdb, string passdb)> listaCefs = new List<(string, string, string, string, string)>();
 
-        string sqlServerConnectionString = "Server=192.168.0.174;Database=DWBI;User Id=sa;Password=P@ssw0rd;";
+        string sqlServerConnectionString = "Server=192.168.0.174;Database=DWBI_PRUEBAS;User Id=sa;Password=P@ssw0rd;";
 
         try
         {
@@ -1617,7 +1957,7 @@ class Program
             {
                 sqlConnection.Open();
 
-                string query = "SELECT sigla, ipserver, rutadb, userdb, passdb FROM ADM_CEFS WHERE activo = 1";
+                string query = "SELECT sigla, ipserver, rutadb, userdb, passdb, region FROM ADM_CEFS WHERE activo = 1";
                 using (var command = new SqlCommand(query, sqlConnection))
                 {
                     using (var reader = command.ExecuteReader())
