@@ -7,3 +7,5 @@ obj/
 LOGS/
 
 .fake
+
+obj/
